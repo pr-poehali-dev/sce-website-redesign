@@ -12,6 +12,7 @@ import RegisterPage from "./pages/RegisterPage";
 import AboutPage from "./pages/AboutPage";
 import ObjectsPage from "./pages/ObjectsPage";
 import ReportsPage from "./pages/ReportsPage";
+import NewsPage from "./pages/NewsPage";
 import AdminPage from "./pages/AdminPage";
 import CreateObjectPage from "./pages/CreateObjectPage";
 import PrivacyPage from "./pages/PrivacyPage";
@@ -35,6 +36,7 @@ const App = () => (
             <Route path="/about" element={<AboutPage />} />
             <Route path="/objects" element={<ObjectsPage />} />
             <Route path="/reports" element={<ReportsPage />} />
+            <Route path="/news" element={<NewsPage />} />
             <Route path="/admin" element={<AdminPage />} />
             <Route path="/create-object" element={<CreateObjectPage />} />
             <Route path="/privacy" element={<PrivacyPage />} />

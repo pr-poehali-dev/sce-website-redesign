@@ -1,10 +1,12 @@
 export type UserRole = 'admin' | 'moderator' | 'researcher' | 'reader';
+export type UserStatus = 'active' | 'pending' | 'blocked';
 
 export interface User {
   id: string;
   email: string;
   username: string;
   role: UserRole;
+  status: UserStatus;
   clearanceLevel: number;
   createdAt: string;
 }

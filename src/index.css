@@ -140,3 +140,16 @@
 .sce-table th {
   @apply bg-secondary;
 }
+
+/* Исправление текста для темного режима */
+.dark .text-black {
+  color: #ffffff;
+}
+
+.dark button:not(.text-white) {
+  color: #ffffff;
+}
+
+.dark h1, .dark h2, .dark h3, .dark h4, .dark h5, .dark h6 {
+  color: #ffffff;
+}
