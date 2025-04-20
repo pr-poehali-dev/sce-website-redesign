@@ -15,12 +15,20 @@ import ReportsPage from "./pages/ReportsPage";
 import NewsPage from "./pages/NewsPage";
 import AdminPage from "./pages/AdminPage";
 import CreateObjectPage from "./pages/CreateObjectPage";
+import CreatePostPage from "./pages/CreatePostPage";
 import PrivacyPage from "./pages/PrivacyPage";
 import TermsPage from "./pages/TermsPage";
 import CopyrightPage from "./pages/CopyrightPage";
 import NotFound from "./pages/NotFound";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+});
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -39,6 +47,7 @@ const App = () => (
             <Route path="/news" element={<NewsPage />} />
             <Route path="/admin" element={<AdminPage />} />
             <Route path="/create-object" element={<CreateObjectPage />} />
+            <Route path="/create-post" element={<CreatePostPage />} />
             <Route path="/privacy" element={<PrivacyPage />} />
             <Route path="/terms" element={<TermsPage />} />
             <Route path="/copyright" element={<CopyrightPage />} />

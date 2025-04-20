@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { 
   ShieldAlert, Users, FileText, Database, Settings, Plus, Edit, Trash, 
-  BarChart, CheckCircle, UserPlus, Newspaper, FilePlus 
+  BarChart, CheckCircle, UserPlus, Newspaper, FilePlus, Eye, ArrowRight,
+  RefreshCw, AlertTriangle, FileEdit
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -40,6 +41,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -47,119 +49,196 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert";
 import Layout from '@/components/layout/Layout';
 import { useAuth } from '@/contexts/AuthContext';
 import { storage } from '@/utils/storage';
-import { User, Position, UserRole, UserStatus } from '@/types';
+import { User, Position, UserRole, UserStatus, SCEObject, Post } from '@/types';
+
+// Ленивая загрузка компонентов для улучшения производительности
+const ObjectManager = lazy(() => import('@/components/admin/ObjectManager'));
+const CreatePostForm = lazy(() => import('@/components/admin/CreatePostForm'));
+const PostsList = lazy(() => import('@/components/admin/PostsList'));
+
+// Компонент-заглушка для ленивой загрузки
+const LazyLoadingPlaceholder = () => (
+  <div className="space-y-4">
+    <Skeleton className="h-12 w-full" />
+    <Skeleton className="h-64 w-full" />
+  </div>
+);
 
 const AdminPage: React.FC = () => {
-  const { user, isAdmin } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [users, setUsers] = useState<User[]>([]);
   const [pendingUsers, setPendingUsers] = useState<User[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
+  const [objects, setObjects] = useState<SCEObject[]>([]);
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [selectedObject, setSelectedObject] = useState<SCEObject | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [currentTab, setCurrentTab] = useState("dashboard");
+  
+  // Состояние для создания должностей
   const [newPositionName, setNewPositionName] = useState('');
   const [newPositionDescription, setNewPositionDescription] = useState('');
   const [newPositionClearance, setNewPositionClearance] = useState('1');
+  
+  // Состояние для редактирования пользователей
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [editRole, setEditRole] = useState<UserRole>('reader');
   const [editClearance, setEditClearance] = useState('1');
   
-  // Состояние для создания публикаций
-  const [newPostTitle, setNewPostTitle] = useState('');
-  const [newPostContent, setNewPostContent] = useState('');
-  const [newPostCategory, setNewPostCategory] = useState('news');
-  const [newPostClearance, setNewPostClearance] = useState('1');
+  // Состояние для отображения уведомлений
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+  const [hasErrors, setHasErrors] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
+  // Загрузка данных с задержкой для улучшения пользовательского опыта
   useEffect(() => {
     // Проверка прав доступа
-    if (!user || !isAdmin) {
+    if (!user || (user.role !== 'admin' && user.role !== 'moderator')) {
       navigate('/');
       return;
     }
 
-    // Загрузка данных
-    const allUsers = storage.getUsers();
-    setUsers(allUsers.filter(u => u.status === 'active'));
-    setPendingUsers(allUsers.filter(u => u.status === 'pending'));
+    setLoading(true);
+    
+    // Имитация задержки сети для плавной загрузки
+    const loadData = async () => {
+      try {
+        // Загружаем данные
+        const allUsers = storage.getUsers();
+        const activeUsers = allUsers.filter(u => u.status === 'active');
+        const waitingUsers = allUsers.filter(u => u.status === 'pending');
+        const allPositions = storage.getPositions();
+        const allObjects = storage.getSCEObjects();
+        const allPosts = storage.getPosts();
+        
+        // Устанавливаем данные в состояние с небольшой задержкой для плавности UI
+        setTimeout(() => {
+          setUsers(activeUsers);
+          setPendingUsers(waitingUsers);
+          setPositions(allPositions);
+          setObjects(allObjects);
+          setPosts(allPosts);
+          setLoading(false);
+          setLastUpdated(new Date());
+          setHasErrors(false);
+        }, 300);
+      } catch (error) {
+        console.error('Ошибка загрузки данных:', error);
+        setHasErrors(true);
+        setErrorMessage('Не удалось загрузить данные. Пожалуйста, попробуйте обновить страницу.');
+        setLoading(false);
+      }
+    };
 
-    const allPositions = storage.getPositions();
-    setPositions(allPositions);
-  }, [user, isAdmin, navigate]);
+    loadData();
+  }, [user, navigate]);
 
+  // Функция для ручного обновления данных
+  const refreshData = () => {
+    setLoading(true);
+    setTimeout(() => {
+      const allUsers = storage.getUsers();
+      setUsers(allUsers.filter(u => u.status === 'active'));
+      setPendingUsers(allUsers.filter(u => u.status === 'pending'));
+      setPositions(storage.getPositions());
+      setObjects(storage.getSCEObjects());
+      setPosts(storage.getPosts());
+      setLoading(false);
+      setLastUpdated(new Date());
+    }, 300);
+  };
+
+  // Управление должностями
   const handleCreatePosition = () => {
     if (!newPositionName) return;
 
-    const newPosition = storage.createPosition({
-      name: newPositionName,
-      description: newPositionDescription,
-      clearanceLevel: parseInt(newPositionClearance),
-      permissions: [],
-    });
+    try {
+      const newPosition = storage.createPosition({
+        name: newPositionName,
+        description: newPositionDescription,
+        clearanceLevel: parseInt(newPositionClearance),
+        permissions: [],
+      });
 
-    setPositions([...positions, newPosition]);
-    setNewPositionName('');
-    setNewPositionDescription('');
-    setNewPositionClearance('1');
+      setPositions([...positions, newPosition]);
+      setNewPositionName('');
+      setNewPositionDescription('');
+      setNewPositionClearance('1');
+    } catch (error) {
+      setHasErrors(true);
+      setErrorMessage('Не удалось создать должность. Пожалуйста, попробуйте еще раз.');
+    }
   };
 
   const handleDeletePosition = (id: string) => {
-    storage.deletePosition(id);
-    setPositions(positions.filter(p => p.id !== id));
+    try {
+      storage.deletePosition(id);
+      setPositions(positions.filter(p => p.id !== id));
+    } catch (error) {
+      setHasErrors(true);
+      setErrorMessage('Не удалось удалить должность. Пожалуйста, попробуйте еще раз.');
+    }
   };
 
+  // Управление пользователями
   const handleUpdateUser = () => {
     if (!selectedUser) return;
 
-    const updatedUser = {
-      ...selectedUser,
-      role: editRole,
-      clearanceLevel: parseInt(editClearance),
-    };
+    try {
+      const updatedUser = {
+        ...selectedUser,
+        role: editRole,
+        clearanceLevel: parseInt(editClearance),
+      };
 
-    storage.updateUser(updatedUser);
-    setUsers(users.map(u => u.id === updatedUser.id ? updatedUser : u));
-    setSelectedUser(null);
+      storage.updateUser(updatedUser);
+      setUsers(users.map(u => u.id === updatedUser.id ? updatedUser : u));
+      setSelectedUser(null);
+    } catch (error) {
+      setHasErrors(true);
+      setErrorMessage('Не удалось обновить пользователя. Пожалуйста, попробуйте еще раз.');
+    }
   };
 
   const handleApproveUser = (userId: string) => {
-    const userToApprove = pendingUsers.find(u => u.id === userId);
-    if (!userToApprove) return;
+    try {
+      const userToApprove = pendingUsers.find(u => u.id === userId);
+      if (!userToApprove) return;
 
-    const updatedUser = {
-      ...userToApprove,
-      status: 'active' as UserStatus,
-    };
+      const updatedUser = {
+        ...userToApprove,
+        status: 'active' as UserStatus,
+      };
 
-    storage.updateUser(updatedUser);
-    setPendingUsers(pendingUsers.filter(u => u.id !== userId));
-    setUsers([...users, updatedUser]);
+      storage.updateUser(updatedUser);
+      setPendingUsers(pendingUsers.filter(u => u.id !== userId));
+      setUsers([...users, updatedUser]);
+    } catch (error) {
+      setHasErrors(true);
+      setErrorMessage('Не удалось одобрить пользователя. Пожалуйста, попробуйте еще раз.');
+    }
   };
 
   const handleRejectUser = (userId: string) => {
-    storage.deleteUser(userId);
-    setPendingUsers(pendingUsers.filter(u => u.id !== userId));
+    try {
+      storage.deleteUser(userId);
+      setPendingUsers(pendingUsers.filter(u => u.id !== userId));
+    } catch (error) {
+      setHasErrors(true);
+      setErrorMessage('Не удалось отклонить пользователя. Пожалуйста, попробуйте еще раз.');
+    }
   };
 
-  const handleCreatePost = () => {
-    if (!newPostTitle || !newPostContent) return;
-
-    storage.createPost({
-      title: newPostTitle,
-      content: newPostContent,
-      category: newPostCategory as any,
-      authorId: user?.id || '',
-      authorName: user?.username || 'Администратор',
-      requiredClearance: parseInt(newPostClearance),
-    });
-
-    // Сбросим форму после создания
-    setNewPostTitle('');
-    setNewPostContent('');
-    setNewPostCategory('news');
-    setNewPostClearance('1');
-  };
-
+  // Вспомогательные функции для форматирования
   const userRoleText = (role: UserRole) => {
     switch (role) {
       case 'admin': return 'Администратор';
@@ -169,25 +248,88 @@ const AdminPage: React.FC = () => {
     }
   };
 
-  const getCategoryLabel = (category: string) => {
-    switch (category) {
-      case 'news': return 'Новость';
-      case 'research': return 'Исследование';
-      case 'report': return 'Отчет';
-      case 'announcement': return 'Объявление';
-      default: return category;
+  const getObjectClassBadge = (objectClass: string) => {
+    switch (objectClass) {
+      case 'безопасный': return <Badge className="bg-green-500">Безопасный</Badge>;
+      case 'евклид': return <Badge className="bg-yellow-500">Евклид</Badge>;
+      case 'кетер': return <Badge className="bg-red-500">Кетер</Badge>;
+      case 'таумиэль': return <Badge className="bg-purple-500">Таумиэль</Badge>;
+      case 'нейтрализованный': return <Badge className="bg-gray-500">Нейтрализованный</Badge>;
+      default: return <Badge>Неизвестно</Badge>;
+    }
+  };
+
+  const formatDate = (dateString: string): string => {
+    try {
+      return new Date(dateString).toLocaleString('ru-RU', {
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (e) {
+      return 'Недопустимая дата';
+    }
+  };
+
+  // Обработчик смены вкладок с механизмом оптимизации производительности
+  const handleTabChange = (value: string) => {
+    setCurrentTab(value);
+    
+    // Если переходим на вкладку с объектами, предзагружаем объекты, если их еще нет
+    if (value === "objects" && objects.length === 0) {
+      setLoading(true);
+      setTimeout(() => {
+        setObjects(storage.getSCEObjects());
+        setLoading(false);
+      }, 300);
+    }
+    
+    // Аналогично для публикаций
+    if (value === "publications" && posts.length === 0) {
+      setLoading(true);
+      setTimeout(() => {
+        setPosts(storage.getPosts());
+        setLoading(false);
+      }, 300);
     }
   };
 
   return (
     <Layout>
       <div className="mb-8">
-        <div className="flex items-center gap-3 mb-6">
-          <Settings className="h-6 w-6 text-accent" />
-          <h1 className="text-2xl font-bold text-black dark:text-white">Панель администратора</h1>
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <Settings className="h-6 w-6 text-accent" />
+            <h1 className="text-2xl font-bold text-black dark:text-white">Панель администратора</h1>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground hidden md:inline">
+              Последнее обновление: {formatDate(lastUpdated.toISOString())}
+            </span>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={refreshData} 
+              disabled={loading}
+              className="text-black dark:text-white"
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              <span className="ml-2 hidden md:inline">Обновить</span>
+            </Button>
+          </div>
         </div>
 
-        <Tabs defaultValue="dashboard">
+        {hasErrors && (
+          <Alert variant="destructive" className="mb-6">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Ошибка</AlertTitle>
+            <AlertDescription>{errorMessage}</AlertDescription>
+          </Alert>
+        )}
+
+        <Tabs defaultValue="dashboard" onValueChange={handleTabChange}>
           <TabsList className="mb-6">
             <TabsTrigger value="dashboard" className="flex items-center gap-2">
               <BarChart className="h-4 w-4" />
@@ -206,6 +348,10 @@ const AdminPage: React.FC = () => {
                 </Badge>
               )}
             </TabsTrigger>
+            <TabsTrigger value="objects" className="flex items-center gap-2">
+              <Database className="h-4 w-4" />
+              <span className="text-black dark:text-white">Объекты SCE</span>
+            </TabsTrigger>
             <TabsTrigger value="publications" className="flex items-center gap-2">
               <Newspaper className="h-4 w-4" />
               <span className="text-black dark:text-white">Публикации</span>
@@ -216,6 +362,7 @@ const AdminPage: React.FC = () => {
             </TabsTrigger>
           </TabsList>
 
+          {/* Вкладка "Обзор" */}
           <TabsContent value="dashboard">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
               <Card>
@@ -227,18 +374,24 @@ const AdminPage: React.FC = () => {
                   <CardDescription>Управление пользователями</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-3xl font-bold text-black dark:text-white">{users.length}</div>
-                  <p className="text-sm text-muted-foreground">Активных пользователей</p>
-                  {pendingUsers.length > 0 && (
-                    <div className="mt-2 flex items-center text-orange-500">
-                      <span className="font-medium">{pendingUsers.length} заявок</span> 
-                      <span className="ml-2 text-sm">на регистрацию</span>
-                    </div>
+                  {loading ? (
+                    <Skeleton className="h-16 w-full" />
+                  ) : (
+                    <>
+                      <div className="text-3xl font-bold text-black dark:text-white">{users.length}</div>
+                      <p className="text-sm text-muted-foreground">Активных пользователей</p>
+                      {pendingUsers.length > 0 && (
+                        <div className="mt-2 flex items-center text-orange-500">
+                          <span className="font-medium">{pendingUsers.length} заявок</span> 
+                          <span className="ml-2 text-sm">на регистрацию</span>
+                        </div>
+                      )}
+                    </>
                   )}
                 </CardContent>
                 <CardFooter>
                   <Button variant="outline" asChild className="w-full text-black dark:text-white">
-                    <Link to="#" onClick={() => document.querySelector('[data-value="users"]')?.click()}>
+                    <Link to="#" onClick={() => handleTabChange("users")}>
                       Управление пользователями
                     </Link>
                   </Button>
@@ -254,16 +407,30 @@ const AdminPage: React.FC = () => {
                   <CardDescription>Каталог аномалий</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-3xl font-bold text-black dark:text-white">{storage.getSCEObjects().length}</div>
-                  <p className="text-sm text-muted-foreground">Зарегистрированных объектов</p>
+                  {loading ? (
+                    <Skeleton className="h-16 w-full" />
+                  ) : (
+                    <>
+                      <div className="text-3xl font-bold text-black dark:text-white">{objects.length}</div>
+                      <p className="text-sm text-muted-foreground">Зарегистрированных объектов</p>
+                    </>
+                  )}
                 </CardContent>
                 <CardFooter>
-                  <Button variant="outline" asChild className="w-full text-black dark:text-white">
-                    <Link to="/create-object">
-                      <Plus className="h-4 w-4 mr-2" />
-                      Добавить объект
-                    </Link>
-                  </Button>
+                  <div className="flex gap-2 w-full">
+                    <Button variant="outline" asChild className="flex-1 text-black dark:text-white">
+                      <Link to="/create-object">
+                        <Plus className="h-4 w-4 mr-2" />
+                        Добавить
+                      </Link>
+                    </Button>
+                    <Button variant="outline" asChild className="flex-1 text-black dark:text-white">
+                      <Link to="#" onClick={() => handleTabChange("objects")}>
+                        <Eye className="h-4 w-4 mr-2" />
+                        Управление
+                      </Link>
+                    </Button>
+                  </div>
                 </CardFooter>
               </Card>
 
@@ -276,16 +443,30 @@ const AdminPage: React.FC = () => {
                   <CardDescription>Отчеты и новости</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-3xl font-bold text-black dark:text-white">{storage.getPosts().length}</div>
-                  <p className="text-sm text-muted-foreground">Опубликованных материалов</p>
+                  {loading ? (
+                    <Skeleton className="h-16 w-full" />
+                  ) : (
+                    <>
+                      <div className="text-3xl font-bold text-black dark:text-white">{posts.length}</div>
+                      <p className="text-sm text-muted-foreground">Опубликованных материалов</p>
+                    </>
+                  )}
                 </CardContent>
                 <CardFooter>
-                  <Button variant="outline" asChild className="w-full text-black dark:text-white">
-                    <Link to="#" onClick={() => document.querySelector('[data-value="publications"]')?.click()}>
-                      <FilePlus className="h-4 w-4 mr-2" />
-                      Создать публикацию
-                    </Link>
-                  </Button>
+                  <div className="flex gap-2 w-full">
+                    <Button variant="outline" asChild className="flex-1 text-black dark:text-white">
+                      <Link to="/create-post">
+                        <FilePlus className="h-4 w-4 mr-2" />
+                        Создать
+                      </Link>
+                    </Button>
+                    <Button variant="outline" asChild className="flex-1 text-black dark:text-white">
+                      <Link to="#" onClick={() => handleTabChange("publications")}>
+                        <Eye className="h-4 w-4 mr-2" />
+                        Управление
+                      </Link>
+                    </Button>
+                  </div>
                 </CardFooter>
               </Card>
             </div>
@@ -298,7 +479,7 @@ const AdminPage: React.FC = () => {
               <CardContent>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   <Button asChild variant="outline" className="h-auto py-4 flex flex-col items-center justify-center text-black dark:text-white">
-                    <Link to="#" onClick={() => document.querySelector('[data-value="approvals"]')?.click()}>
+                    <Link to="#" onClick={() => handleTabChange("approvals")}>
                       <UserPlus className="h-8 w-8 mb-2" />
                       <span>Проверка заявок</span>
                       {pendingUsers.length > 0 && (
@@ -315,7 +496,7 @@ const AdminPage: React.FC = () => {
                   </Button>
                   
                   <Button asChild variant="outline" className="h-auto py-4 flex flex-col items-center justify-center text-black dark:text-white">
-                    <Link to="#" onClick={() => document.querySelector('[data-value="publications"]')?.click()}>
+                    <Link to="/create-post">
                       <Newspaper className="h-8 w-8 mb-2" />
                       <span>Создать публикацию</span>
                     </Link>
@@ -325,6 +506,7 @@ const AdminPage: React.FC = () => {
             </Card>
           </TabsContent>
 
+          {/* Вкладка "Пользователи" */}
           <TabsContent value="users">
             <Card>
               <CardHeader>
@@ -332,7 +514,13 @@ const AdminPage: React.FC = () => {
                 <CardDescription>Просмотр и редактирование пользователей системы</CardDescription>
               </CardHeader>
               <CardContent>
-                {users.length > 0 ? (
+                {loading ? (
+                  <div className="space-y-4">
+                    <Skeleton className="h-10 w-full" />
+                    <Skeleton className="h-10 w-full" />
+                    <Skeleton className="h-10 w-full" />
+                  </div>
+                ) : users.length > 0 ? (
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -436,6 +624,7 @@ const AdminPage: React.FC = () => {
             </Card>
           </TabsContent>
 
+          {/* Вкладка "Заявки" */}
           <TabsContent value="approvals">
             <Card>
               <CardHeader>
@@ -443,7 +632,12 @@ const AdminPage: React.FC = () => {
                 <CardDescription>Одобрение и отклонение новых пользователей</CardDescription>
               </CardHeader>
               <CardContent>
-                {pendingUsers.length > 0 ? (
+                {loading ? (
+                  <div className="space-y-4">
+                    <Skeleton className="h-10 w-full" />
+                    <Skeleton className="h-10 w-full" />
+                  </div>
+                ) : pendingUsers.length > 0 ? (
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -496,6 +690,38 @@ const AdminPage: React.FC = () => {
             </Card>
           </TabsContent>
 
+          {/* Вкладка "Объекты SCE" */}
+          <TabsContent value="objects">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle className="text-black dark:text-white">Управление объектами SCE</CardTitle>
+                  <CardDescription>Просмотр и редактирование каталога аномальных объектов</CardDescription>
+                </div>
+                <Button asChild className="text-white">
+                  <Link to="/create-object">
+                    <Plus className="h-4 w-4 mr-2" />
+                    Создать объект
+                  </Link>
+                </Button>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <div className="space-y-4">
+                    <Skeleton className="h-20 w-full" />
+                    <Skeleton className="h-20 w-full" />
+                    <Skeleton className="h-20 w-full" />
+                  </div>
+                ) : (
+                  <Suspense fallback={<LazyLoadingPlaceholder />}>
+                    <ObjectManager objects={objects} />
+                  </Suspense>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Вкладка "Публикации" */}
           <TabsContent value="publications">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <Card>
@@ -504,73 +730,26 @@ const AdminPage: React.FC = () => {
                   <CardDescription>Опубликовать отчет, новость или объявление</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-4">
-                    <div className="grid gap-2">
-                      <Label htmlFor="post-title" className="text-black dark:text-white">Заголовок</Label>
-                      <Input
-                        id="post-title"
-                        value={newPostTitle}
-                        onChange={(e) => setNewPostTitle(e.target.value)}
-                        placeholder="Введите заголовок публикации"
-                        className="text-black dark:text-white"
-                      />
+                  {loading ? (
+                    <div className="space-y-4">
+                      <Skeleton className="h-10 w-full" />
+                      <Skeleton className="h-10 w-full" />
+                      <Skeleton className="h-48 w-full" />
                     </div>
-                    
-                    <div className="grid gap-2">
-                      <Label htmlFor="post-category" className="text-black dark:text-white">Тип публикации</Label>
-                      <Select 
-                        value={newPostCategory} 
-                        onValueChange={setNewPostCategory}
-                      >
-                        <SelectTrigger className="text-black dark:text-white">
-                          <SelectValue placeholder="Выберите тип публикации" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="news">Новость</SelectItem>
-                          <SelectItem value="research">Исследование</SelectItem>
-                          <SelectItem value="report">Отчет</SelectItem>
-                          <SelectItem value="announcement">Объявление</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    
-                    <div className="grid gap-2">
-                      <Label htmlFor="post-clearance" className="text-black dark:text-white">Уровень доступа</Label>
-                      <Select 
-                        value={newPostClearance} 
-                        onValueChange={setNewPostClearance}
-                      >
-                        <SelectTrigger className="text-black dark:text-white">
-                          <SelectValue placeholder="Выберите уровень доступа" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="1">Уровень 1 (Общий доступ)</SelectItem>
-                          <SelectItem value="2">Уровень 2</SelectItem>
-                          <SelectItem value="3">Уровень 3</SelectItem>
-                          <SelectItem value="4">Уровень 4</SelectItem>
-                          <SelectItem value="5">Уровень 5 (Высший доступ)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    
-                    <div className="grid gap-2">
-                      <Label htmlFor="post-content" className="text-black dark:text-white">Содержание</Label>
-                      <Textarea
-                        id="post-content"
-                        value={newPostContent}
-                        onChange={(e) => setNewPostContent(e.target.value)}
-                        placeholder="Введите текст публикации"
-                        rows={6}
-                        className="text-black dark:text-white"
-                      />
-                    </div>
-                    
-                    <Button className="w-full text-white" onClick={handleCreatePost}>
-                      <FilePlus className="h-4 w-4 mr-2" />
-                      <span>Опубликовать</span>
-                    </Button>
-                  </div>
+                  ) : (
+                    <Suspense fallback={<LazyLoadingPlaceholder />}>
+                      <CreatePostForm />
+                    </Suspense>
+                  )}
                 </CardContent>
+                <CardFooter>
+                  <Button variant="outline" asChild className="w-full text-black dark:text-white">
+                    <Link to="/create-post">
+                      <FileEdit className="h-4 w-4 mr-2" />
+                      Открыть редактор публикаций
+                    </Link>
+                  </Button>
+                </CardFooter>
               </Card>
 
               <Card>
@@ -579,44 +758,22 @@ const AdminPage: React.FC = () => {
                   <CardDescription>Управление существующими публикациями</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-4">
-                    {storage.getPosts().length > 0 ? (
-                      storage.getPosts().slice(0, 5).map(post => (
-                        <div key={post.id} className="border-b border-border pb-4 last:border-0">
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <h3 className="font-medium text-black dark:text-white">{post.title}</h3>
-                              <p className="text-sm text-muted-foreground line-clamp-2">{post.content}</p>
-                            </div>
-                            <div className="bg-primary/20 px-2 py-1 rounded text-xs text-black dark:text-white">
-                              {getCategoryLabel(post.category)}
-                            </div>
-                          </div>
-                          <div className="flex justify-between mt-2">
-                            <span className="text-xs text-muted-foreground">
-                              {new Date(post.createdAt).toLocaleDateString()}
-                            </span>
-                            <div className="flex gap-2">
-                              <Button size="sm" variant="outline" className="text-black dark:text-white">
-                                <Edit className="h-3 w-3" />
-                              </Button>
-                              <Button size="sm" variant="outline" className="text-red-500">
-                                <Trash className="h-3 w-3" />
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="text-center py-8 text-muted-foreground">
-                        <p>Публикации не найдены. Создайте новую публикацию.</p>
-                      </div>
-                    )}
-                  </div>
+                  {loading ? (
+                    <div className="space-y-4">
+                      <Skeleton className="h-16 w-full" />
+                      <Skeleton className="h-16 w-full" />
+                      <Skeleton className="h-16 w-full" />
+                    </div>
+                  ) : (
+                    <Suspense fallback={<LazyLoadingPlaceholder />}>
+                      <PostsList posts={posts.slice(0, 5)} refresh={refreshData} />
+                    </Suspense>
+                  )}
                 </CardContent>
                 <CardFooter>
                   <Button variant="outline" asChild className="w-full text-black dark:text-white">
                     <Link to="/news">
+                      <ArrowRight className="h-4 w-4 mr-2" />
                       Перейти ко всем публикациям
                     </Link>
                   </Button>
@@ -625,6 +782,7 @@ const AdminPage: React.FC = () => {
             </div>
           </TabsContent>
 
+          {/* Вкладка "Должности" */}
           <TabsContent value="positions">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <Card>
@@ -689,7 +847,13 @@ const AdminPage: React.FC = () => {
                   <CardDescription>Существующие должности и уровни доступа</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {positions.length > 0 ? (
+                  {loading ? (
+                    <div className="space-y-4">
+                      <Skeleton className="h-10 w-full" />
+                      <Skeleton className="h-10 w-full" />
+                      <Skeleton className="h-10 w-full" />
+                    </div>
+                  ) : positions.length > 0 ? (
                     <Table>
                       <TableHeader>
                         <TableRow>
