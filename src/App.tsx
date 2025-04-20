@@ -14,6 +14,9 @@ import ObjectsPage from "./pages/ObjectsPage";
 import ReportsPage from "./pages/ReportsPage";
 import AdminPage from "./pages/AdminPage";
 import CreateObjectPage from "./pages/CreateObjectPage";
+import PrivacyPage from "./pages/PrivacyPage";
+import TermsPage from "./pages/TermsPage";
+import CopyrightPage from "./pages/CopyrightPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -34,6 +37,9 @@ const App = () => (
             <Route path="/reports" element={<ReportsPage />} />
             <Route path="/admin" element={<AdminPage />} />
             <Route path="/create-object" element={<CreateObjectPage />} />
+            <Route path="/privacy" element={<PrivacyPage />} />
+            <Route path="/terms" element={<TermsPage />} />
+            <Route path="/copyright" element={<CopyrightPage />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>

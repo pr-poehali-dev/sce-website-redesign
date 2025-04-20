@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ShieldAlert, Users, FileText, Database, Settings, Plus, Edit, Trash } from 'lucide-react';
+import { useNavigate, Link } from 'react-router-dom';
+import { 
+  ShieldAlert, Users, FileText, Database, Settings, Plus, Edit, Trash, 
+  BarChart, CheckCircle, UserPlus, Newspaper, FilePlus 
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -8,6 +11,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  CardFooter,
 } from '@/components/ui/card';
 import {
   Tabs,
@@ -34,6 +38,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -50,6 +55,7 @@ const AdminPage: React.FC = () => {
   const { user, isAdmin } = useAuth();
   const navigate = useNavigate();
   const [users, setUsers] = useState<User[]>([]);
+  const [pendingUsers, setPendingUsers] = useState<User[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
   const [newPositionName, setNewPositionName] = useState('');
   const [newPositionDescription, setNewPositionDescription] = useState('');
@@ -57,6 +63,11 @@ const AdminPage: React.FC = () => {
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [editRole, setEditRole] = useState<UserRole>('reader');
   const [editClearance, setEditClearance] = useState('1');
+  
+  // Состояние для создания публикаций
+  const [newPostTitle, setNewPostTitle] = useState('');
+  const [newPostContent, setNewPostContent] = useState('');
+  const [newPostCategory, setNewPostCategory] = useState('news');
 
   useEffect(() => {
     // Проверка прав доступа
@@ -67,7 +78,8 @@ const AdminPage: React.FC = () => {
 
     // Загрузка данных
     const allUsers = storage.getUsers();
-    setUsers(allUsers);
+    setUsers(allUsers.filter(u => u.status === 'active'));
+    setPendingUsers(allUsers.filter(u => u.status === 'pending'));
 
     const allPositions = storage.getPositions();
     setPositions(allPositions);
@@ -108,12 +120,59 @@ const AdminPage: React.FC = () => {
     setSelectedUser(null);
   };
 
+  const handleApproveUser = (userId: string) => {
+    const userToApprove = pendingUsers.find(u => u.id === userId);
+    if (!userToApprove) return;
+
+    const updatedUser = {
+      ...userToApprove,
+      status: 'active' as const
+    };
+
+    storage.updateUser(updatedUser);
+    setPendingUsers(pendingUsers.filter(u => u.id !== userId));
+    setUsers([...users, updatedUser]);
+  };
+
+  const handleRejectUser = (userId: string) => {
+    storage.deleteUser(userId);
+    setPendingUsers(pendingUsers.filter(u => u.id !== userId));
+  };
+
+  const handleCreatePost = () => {
+    if (!newPostTitle || !newPostContent) return;
+
+    storage.createPost({
+      title: newPostTitle,
+      content: newPostContent,
+      category: newPostCategory,
+      authorId: user?.id || '',
+      authorName: user?.username || 'Администратор',
+      requiredClearance: 1,
+    });
+
+    // Сбросим форму после создания
+    setNewPostTitle('');
+    setNewPostContent('');
+    setNewPostCategory('news');
+  };
+
   const userRoleText = (role: UserRole) => {
     switch (role) {
       case 'admin': return 'Администратор';
       case 'moderator': return 'Модератор';
       case 'researcher': return 'Исследователь';
       case 'reader': return 'Читатель';
+    }
+  };
+
+  const getCategoryLabel = (category: string) => {
+    switch (category) {
+      case 'news': return 'Новость';
+      case 'research': return 'Исследование';
+      case 'report': return 'Отчет';
+      case 'announcement': return 'Объявление';
+      default: return category;
     }
   };
 
@@ -125,15 +184,23 @@ const AdminPage: React.FC = () => {
           <h1 className="text-2xl font-bold">Панель администратора</h1>
         </div>
 
-        <Tabs defaultValue="users">
+        <Tabs defaultValue="dashboard">
           <TabsList className="mb-6">
             <TabsTrigger value="dashboard" className="flex items-center gap-2">
-              <Database className="h-4 w-4" />
+              <BarChart className="h-4 w-4" />
               <span>Обзор</span>
             </TabsTrigger>
             <TabsTrigger value="users" className="flex items-center gap-2">
               <Users className="h-4 w-4" />
               <span>Пользователи</span>
+            </TabsTrigger>
+            <TabsTrigger value="approvals" className="flex items-center gap-2">
+              <CheckCircle className="h-4 w-4" />
+              <span>Заявки</span>
+            </TabsTrigger>
+            <TabsTrigger value="publications" className="flex items-center gap-2">
+              <Newspaper className="h-4 w-4" />
+              <span>Публикации</span>
             </TabsTrigger>
             <TabsTrigger value="positions" className="flex items-center gap-2">
               <ShieldAlert className="h-4 w-4" />
@@ -153,8 +220,21 @@ const AdminPage: React.FC = () => {
                 </CardHeader>
                 <CardContent>
                   <div className="text-3xl font-bold">{users.length}</div>
-                  <p className="text-sm text-muted-foreground">Зарегистрированных пользователей</p>
+                  <p className="text-sm text-muted-foreground">Активных пользователей</p>
+                  {pendingUsers.length > 0 && (
+                    <div className="mt-2 flex items-center text-orange-500">
+                      <span className="font-medium">{pendingUsers.length} заявок</span> 
+                      <span className="ml-2 text-sm">на регистрацию</span>
+                    </div>
+                  )}
                 </CardContent>
+                <CardFooter>
+                  <Button variant="outline" asChild className="w-full">
+                    <Link to="#" onClick={() => document.querySelector('[data-value="users"]')?.click()}>
+                      Управление пользователями
+                    </Link>
+                  </Button>
+                </CardFooter>
               </Card>
 
               <Card>
@@ -169,6 +249,14 @@ const AdminPage: React.FC = () => {
                   <div className="text-3xl font-bold">{storage.getSCEObjects().length}</div>
                   <p className="text-sm text-muted-foreground">Зарегистрированных объектов</p>
                 </CardContent>
+                <CardFooter>
+                  <Button variant="outline" asChild className="w-full">
+                    <Link to="/create-object">
+                      <Plus className="h-4 w-4 mr-2" />
+                      Добавить объект
+                    </Link>
+                  </Button>
+                </CardFooter>
               </Card>
 
               <Card>
@@ -183,17 +271,47 @@ const AdminPage: React.FC = () => {
                   <div className="text-3xl font-bold">{storage.getPosts().length}</div>
                   <p className="text-sm text-muted-foreground">Опубликованных материалов</p>
                 </CardContent>
+                <CardFooter>
+                  <Button variant="outline" asChild className="w-full">
+                    <Link to="#" onClick={() => document.querySelector('[data-value="publications"]')?.click()}>
+                      <FilePlus className="h-4 w-4 mr-2" />
+                      Создать публикацию
+                    </Link>
+                  </Button>
+                </CardFooter>
               </Card>
             </div>
 
             <Card>
               <CardHeader>
-                <CardTitle>Недавняя активность</CardTitle>
-                <CardDescription>Последние действия в системе</CardDescription>
+                <CardTitle>Быстрые действия</CardTitle>
+                <CardDescription>Основные операции в системе</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="text-center py-8 text-muted-foreground">
-                  <p>Здесь будет отображаться журнал последних действий.</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <Button asChild variant="outline" className="h-auto py-4 flex flex-col items-center justify-center">
+                    <Link to="#" onClick={() => document.querySelector('[data-value="approvals"]')?.click()}>
+                      <UserPlus className="h-8 w-8 mb-2" />
+                      <span>Проверка заявок</span>
+                      {pendingUsers.length > 0 && (
+                        <span className="mt-1 text-sm text-orange-500">{pendingUsers.length} ожидают</span>
+                      )}
+                    </Link>
+                  </Button>
+                  
+                  <Button asChild variant="outline" className="h-auto py-4 flex flex-col items-center justify-center">
+                    <Link to="/create-object">
+                      <Database className="h-8 w-8 mb-2" />
+                      <span>Новый объект SCE</span>
+                    </Link>
+                  </Button>
+                  
+                  <Button asChild variant="outline" className="h-auto py-4 flex flex-col items-center justify-center">
+                    <Link to="#" onClick={() => document.querySelector('[data-value="publications"]')?.click()}>
+                      <Newspaper className="h-8 w-8 mb-2" />
+                      <span>Создать публикацию</span>
+                    </Link>
+                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -308,6 +426,172 @@ const AdminPage: React.FC = () => {
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="approvals">
+            <Card>
+              <CardHeader>
+                <CardTitle>Заявки на регистрацию</CardTitle>
+                <CardDescription>Одобрение и отклонение новых пользователей</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {pendingUsers.length > 0 ? (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Имя</TableHead>
+                        <TableHead>Email</TableHead>
+                        <TableHead>Дата заявки</TableHead>
+                        <TableHead>Действия</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {pendingUsers.map((pendingUser) => (
+                        <TableRow key={pendingUser.id}>
+                          <TableCell>{pendingUser.username}</TableCell>
+                          <TableCell>{pendingUser.email}</TableCell>
+                          <TableCell>{new Date(pendingUser.createdAt).toLocaleDateString()}</TableCell>
+                          <TableCell>
+                            <div className="flex space-x-2">
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                className="text-green-500 hover:text-green-700"
+                                onClick={() => handleApproveUser(pendingUser.id)}
+                              >
+                                <CheckCircle className="h-4 w-4 mr-1" />
+                                Одобрить
+                              </Button>
+                              <Button 
+                                variant="outline" 
+                                size="sm"
+                                className="text-red-500 hover:text-red-700"
+                                onClick={() => handleRejectUser(pendingUser.id)}
+                              >
+                                <Trash className="h-4 w-4 mr-1" />
+                                Отклонить
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <p>Заявок на регистрацию нет.</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="publications">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Создать публикацию</CardTitle>
+                  <CardDescription>Опубликовать отчет, новость или объявление</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="grid gap-2">
+                      <Label htmlFor="post-title">Заголовок</Label>
+                      <Input
+                        id="post-title"
+                        value={newPostTitle}
+                        onChange={(e) => setNewPostTitle(e.target.value)}
+                        placeholder="Введите заголовок публикации"
+                      />
+                    </div>
+                    
+                    <div className="grid gap-2">
+                      <Label htmlFor="post-category">Тип публикации</Label>
+                      <Select 
+                        value={newPostCategory} 
+                        onValueChange={setNewPostCategory}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Выберите тип публикации" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="news">Новость</SelectItem>
+                          <SelectItem value="research">Исследование</SelectItem>
+                          <SelectItem value="report">Отчет</SelectItem>
+                          <SelectItem value="announcement">Объявление</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    
+                    <div className="grid gap-2">
+                      <Label htmlFor="post-content">Содержание</Label>
+                      <Textarea
+                        id="post-content"
+                        value={newPostContent}
+                        onChange={(e) => setNewPostContent(e.target.value)}
+                        placeholder="Введите текст публикации"
+                        rows={6}
+                      />
+                    </div>
+                    
+                    <Button className="w-full" onClick={handleCreatePost}>
+                      <FilePlus className="h-4 w-4 mr-2" />
+                      <span>Опубликовать</span>
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Последние публикации</CardTitle>
+                  <CardDescription>Управление существующими публикациями</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {storage.getPosts().length > 0 ? (
+                      storage.getPosts().slice(0, 5).map(post => (
+                        <div key={post.id} className="border-b border-border pb-4 last:border-0">
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <h3 className="font-medium">{post.title}</h3>
+                              <p className="text-sm text-muted-foreground line-clamp-2">{post.content}</p>
+                            </div>
+                            <div className="bg-primary/20 px-2 py-1 rounded text-xs">
+                              {getCategoryLabel(post.category)}
+                            </div>
+                          </div>
+                          <div className="flex justify-between mt-2">
+                            <span className="text-xs text-muted-foreground">
+                              {new Date(post.createdAt).toLocaleDateString()}
+                            </span>
+                            <div className="flex gap-2">
+                              <Button size="sm" variant="outline">
+                                <Edit className="h-3 w-3" />
+                              </Button>
+                              <Button size="sm" variant="outline" className="text-red-500">
+                                <Trash className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <p>Публикации не найдены. Создайте новую публикацию.</p>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+                <CardFooter>
+                  <Button variant="outline" asChild className="w-full">
+                    <Link to="/reports">
+                      Перейти ко всем публикациям
+                    </Link>
+                  </Button>
+                </CardFooter>
+              </Card>
+            </div>
           </TabsContent>
 
           <TabsContent value="positions">
